@@ -151,29 +151,45 @@ gh release create v0.2.0 --generate-notes --target main
 
 ## 7. 배포 & 롤백
 
+배포 = `main` push → GitHub Actions 빌드 → **GitHub Pages** (https://jake-labs.github.io/wordmon/).
+서버 런타임이 없는 정적 호스팅이므로 `output: "export"` 결과물(`out/`)만 올라간다.
+
 | 상황 | 대응 |
 | --- | --- |
-| 방금 머지한 PR이 문제 | `gh pr revert` 로 revert PR 생성 → Squash Merge (히스토리 보존) |
-| 태그 단위 롤백 | 이전 태그로 재배포 (Vercel/Cloud Run이면 대시보드에서 promote) |
+| 방금 머지한 PR이 문제 | `gh pr revert` 로 revert PR 생성 → Squash Merge → 자동 재배포 (히스토리 보존) |
+| 배포 job만 실패 | Actions에서 해당 run의 `build`/`deploy` 재실행 (`gh run rerun <id>`) |
 | 긴급 수정 | `hotfix/*` → PR → Squash Merge → patch 태그 |
-| DB 마이그레이션 | 항상 **뒤로 호환**되게 2단계로 (추가 → 배포 → 정리). 롤백해도 스키마가 깨지지 않아야 함 |
+| 데이터 마이그레이션 | 서버 스키마가 없다. 브라우저 저장소는 스키마 버전 필드 + 마이그레이션 코드로 처리 |
 
-- `git reset --hard` + force push로 `main`을 되돌리지 않는다.
-- 배포 후 5분은 로그/에러율을 확인한다(자동 배포의 유일한 안전장치).
+- `git reset --hard` + force push로 `main`을 되돌리지 않는다. 롤백도 revert 커밋으로 한다.
+- 배포 후 실제 URL을 열어 확인한다(정적 배포라 런타임 로그가 없다 — 브라우저 콘솔이 유일한 단서).
 
 ## 8. main 보호 설정
 
-**현재 상태: private 저장소 + Free 플랜이라 GitHub 브랜치 보호는 사용할 수 없다**
-(`403 Upgrade to GitHub Pro or make this repository public`). 대신 3중으로 막는다.
+저장소를 public으로 전환하면서 **GitHub 브랜치 보호가 켜졌다**(public 저장소는 Free 플랜에서도 사용 가능).
 
-| 수단 | 내용 | 적용 위치 |
-| --- | --- | --- |
-| 로컬 pre-push 훅 | `main` 직접 push 차단 | `.githooks/pre-push` |
-| 머지 방식 제한 | Squash merge만 허용, 머지 후 브랜치 자동 삭제 | 저장소 설정 |
-| CI | PR마다 lint/typecheck/test/build, 빨간 PR은 머지하지 않는 규율 | `.github/workflows/ci.yml` |
+| 설정 | 값 |
+| --- | --- |
+| Required status checks | `verify` (strict — 머지 전 최신 `main` 기준 통과 필요) |
+| PR 필수 | 예 (승인 0명 — 1인 개발) |
+| Force push / 브랜치 삭제 | 금지 (admin 포함) |
+| 대화 해결 | 머지 전 필수 |
+| 머지 방식 | Squash만 허용, 머지 후 브랜치 자동 삭제 |
 
 ```bash
-# 이미 적용됨 — 저장소 머지 정책
+# 적용된 설정 재현
+gh api -X PUT repos/jake-labs/wordmon/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": {"strict": true, "contexts": ["verify"]},
+  "enforce_admins": true,
+  "required_pull_request_reviews": {"required_approving_review_count": 0, "dismiss_stale_reviews": true},
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_conversation_resolution": true
+}
+JSON
+
 gh api -X PATCH repos/jake-labs/wordmon \
   -F allow_squash_merge=true \
   -F allow_merge_commit=false \
@@ -181,18 +197,7 @@ gh api -X PATCH repos/jake-labs/wordmon \
   -F delete_branch_on_merge=true
 ```
 
-> 공개 저장소로 전환하거나 GitHub Pro로 업그레이드하면 아래를 켠다.
->
-> ```bash
-> gh api -X PUT repos/jake-labs/wordmon/branches/main/protection \
->   -F "required_status_checks[strict]=true" \
->   -F "required_status_checks[contexts][]=verify" \
->   -F "enforce_admins=true" \
->   -F "required_pull_request_reviews[required_approving_review_count]=0" \
->   -F "restrictions=" \
->   -F "allow_force_pushes=false" \
->   -F "allow_deletions=false"
-> ```
+로컬 훅(`pre-push`, `commit-msg`)은 서버 보호를 우회하기 전에 걸리는 **2차 방어선**으로 유지한다.
 
 ## 9. 로컬 git 설정 (권장)
 
@@ -212,8 +217,11 @@ git config --global alias.cleanup "!git branch --merged main | grep -v main | xa
 
 ## 10. CI 최소 구성
 
-PR마다: `lint → typecheck → test → build`. `main` push 시: 위 + 배포.
-`.github/workflows/ci.yml` 하나로 시작하고, 배포는 같은 워크플로의 `main` 조건 job으로 붙인다.
+- `.github/workflows/ci.yml` — PR마다 `lint → typecheck → test → build`
+- `.github/workflows/deploy.yml` — `main` push 시 `BASE_PATH=/wordmon npm run build` → GitHub Pages 배포
+
+`ci.yml`의 `verify`는 PR 게이트, `deploy.yml`은 배포만 담당한다. 배포가 검증을 다시 돌리지 않는 이유는
+`main`에 올라가는 커밋이 이미 PR에서 `verify`를 통과한 커밋이기 때문이다.
 
 ## 11. PR 전 체크리스트
 
