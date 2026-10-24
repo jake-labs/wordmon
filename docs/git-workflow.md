@@ -84,9 +84,10 @@ chore(deps): bump vite to 6.1.0
 ### 커밋 메시지 자동 검사
 
 `.githooks/commit-msg`에 있고, `core.hooksPath`로 연결되어 있다(저장소에 버전 관리됨).
+`npm install`의 `prepare` 스크립트가 자동으로 설정하므로, 클론 후 `npm install`만 하면 된다.
 
 ```bash
-git config core.hooksPath .githooks   # 클론 후 1회
+git config core.hooksPath .githooks   # prepare가 실패했을 때 수동으로
 ```
 
 `feat|fix|refactor|perf|test|docs|chore|style|build|ci` 외의 type, 72자 초과 첫 줄은 커밋이 거부된다.

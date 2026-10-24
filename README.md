@@ -36,8 +36,8 @@ npm run dev      # http://localhost:3000
 - 커밋 메시지는 Conventional Commits (`feat(quiz): add streak counter`).
 - PR마다 CI(lint → typecheck → test → build)가 돈다.
 
-### 클론 직후 1회
+### 클론 직후
 
 ```bash
-git config core.hooksPath .githooks
+npm install   # prepare 스크립트가 core.hooksPath=.githooks 를 자동 설정
 ```
