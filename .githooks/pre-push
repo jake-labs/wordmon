@@ -1,0 +1,33 @@
+#!/bin/sh
+# main 직접 push 차단 (PR 흐름 강제)
+# 우회가 정말 필요하면: git push --no-verify
+protected="main master"
+remote="$1"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/*)
+      branch=${remote_ref#refs/heads/}
+      for p in $protected; do
+        if [ "$branch" = "$p" ]; then
+          # 브랜치 삭제는 허용
+          if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+            continue
+          fi
+          echo ""
+          echo "🚫 '$branch' 브랜치로 직접 push 할 수 없습니다."
+          echo ""
+          echo "   PR 흐름으로 진행하세요:"
+          echo "     git switch -c feat/<이슈번호>-<요약>"
+          echo "     git push -u origin HEAD && gh pr create --fill --base main"
+          echo ""
+          echo "   정말 필요한 경우에만: git push --no-verify"
+          echo ""
+          exit 1
+        fi
+      done
+      ;;
+  esac
+done
+
+exit 0
